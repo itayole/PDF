@@ -14,9 +14,14 @@ const THUMB_W = 150;
 
 // Keep in sync with package.json "version". Shown in the toolbar; the notes
 // appear on hover/focus of the version label.
-const VERSION = '0.3';
+const VERSION = '0.35';
 const RELEASE_NOTES = [
-  'PDF Editor v0.3',
+  'PDF Editor v0.35',
+  '• Drag & drop PDF files onto the left pane (load, or insert at the drop spot)',
+  '• "+" insert zones between thumbnails (before first / between / after last)',
+  '• Insert picker now defaults to all pages selected',
+  '',
+  'Since v0.3:',
   '• Two-pane workspace: thumbnail rail + continuous full-size scroll viewer',
   '• Delete, insert (from other PDFs), reorder (multi-select drag), rotate,',
   '  duplicate, blank pages, extract selection',
@@ -638,20 +643,25 @@ $('file-open').addEventListener('change', async () => {
   if (!file) return;
   if (getState().pages.length && !confirm('Replace the current document? Unsaved changes will be lost.')) return;
   try {
-    const { srcId, isPdfA } = await registerSource(file);
-    const items = await pageItemsForSource(srcId);
-    commit((s) => { s.pages = items; s.docName = file.name; });
-    const st = getState();
-    st.currentPageId = items[0]?.id ?? null;
-    st.selection = new Set();
-    lastStackSig = null;
-    emit();
-    toast(`Opened ${file.name} (${items.length} pages)` + (isPdfA ? ' — PDF/A detected' : ''));
+    await loadDocument(file);
   } catch (err) {
     console.error(err);
     toast('Could not open this PDF. Is it password-protected?', true);
   }
 });
+
+// Load a file as the working document (replacing any current one).
+async function loadDocument(file) {
+  const { srcId, isPdfA } = await registerSource(file);
+  const items = await pageItemsForSource(srcId);
+  commit((s) => { s.pages = items; s.docName = file.name; });
+  const st = getState();
+  st.currentPageId = items[0]?.id ?? null;
+  st.selection = new Set();
+  lastStackSig = null;
+  emit();
+  toast(`Opened ${file.name} (${items.length} pages)` + (isPdfA ? ' — PDF/A detected' : ''));
+}
 
 // Start an insert at the given page index, then open the file chooser.
 function beginInsertAt(index) {
@@ -671,6 +681,56 @@ $('file-insert').addEventListener('change', async () => {
     toast('Could not read this PDF.', true);
   }
 });
+
+// ── Drag & drop a PDF onto the left pane ─────────────────────────────────────
+const leftPane = document.querySelector('.pane-left');
+const dragHasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+const firstPdf = (list) => [...list].find((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+
+// Insert index from the drop's vertical position over the thumbnails.
+function dropIndexFromY(clientY) {
+  const thumbs = [...$('thumbs').querySelectorAll('.thumb')];
+  for (let i = 0; i < thumbs.length; i++) {
+    const r = thumbs[i].getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) return i;
+  }
+  return thumbs.length;
+}
+
+leftPane.addEventListener('dragover', (e) => {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  leftPane.classList.add('drag-over');
+});
+leftPane.addEventListener('dragleave', (e) => {
+  if (!leftPane.contains(e.relatedTarget)) leftPane.classList.remove('drag-over');
+});
+leftPane.addEventListener('drop', async (e) => {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  leftPane.classList.remove('drag-over');
+  const file = firstPdf(e.dataTransfer.files);
+  if (!file) { toast('Please drop a PDF file.', true); return; }
+  try {
+    if (!getState().pages.length) {
+      await loadDocument(file);
+    } else {
+      pendingInsertIndex = dropIndexFromY(e.clientY);
+      const { srcId } = await registerSource(file);
+      openPicker(srcId);
+    }
+  } catch (err) {
+    console.error(err);
+    toast('Could not read this PDF.', true);
+  }
+});
+
+// Prevent the browser from navigating away if a file is dropped outside the
+// left pane (which would discard the current work).
+window.addEventListener('dragover', (e) => { if (dragHasFiles(e)) e.preventDefault(); });
+window.addEventListener('drop', (e) => { if (dragHasFiles(e)) e.preventDefault(); });
 
 // ---------------------------------------------------------------------------
 // Insert picker

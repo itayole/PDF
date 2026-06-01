@@ -67,7 +67,14 @@ html, body {
 /* ───────── Workspace split ───────── */
 .workspace { display: flex; height: calc(100vh - var(--toolbar-h)); }
 .pane { display: flex; flex-direction: column; min-height: 0; }
-.pane-left { width: 270px; min-width: 180px; background: #e4e8ee; border-right: 1px solid var(--border); }
+.pane-left { width: 270px; min-width: 180px; background: #e4e8ee; border-right: 1px solid var(--border); position: relative; }
+.pane-left.drag-over { outline: 2px dashed var(--gold); outline-offset: -4px; background: #edf0f5; }
+.pane-left.drag-over::after {
+  content: 'Drop PDF to add pages'; position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  font-weight: 700; color: var(--navy); background: rgba(201, 162, 75, 0.14);
+  pointer-events: none; padding: 1rem;
+}
 .pane-right { flex: 1; min-width: 0; }
 .splitter { width: 0; }
 
