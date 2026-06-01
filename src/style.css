@@ -90,6 +90,19 @@ html, body {
 /* ───────── Thumbnails (left) ───────── */
 .thumbs { flex: 1; overflow-y: auto; padding: 0.4rem 0.6rem; display: flex; flex-direction: column; }
 
+/* Initial state — "add a file" drop target shown when no document is open. */
+.thumbs-empty {
+  margin: auto; width: calc(100% - 0.6rem);
+  padding: 2.5rem 1rem; border: 2px dashed var(--border); border-radius: 12px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font-family: inherit; display: flex; flex-direction: column;
+  align-items: center; gap: 0.7rem;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.thumbs-empty:hover { border-color: var(--gold); color: var(--navy); background: #edf0f5; }
+.thumbs-empty-plus { font-size: 2.6rem; font-weight: 300; line-height: 0.8; color: var(--gold); }
+.thumbs-empty-text { font-size: 0.82rem; font-weight: 600; text-align: center; }
+
 /* "+" insert zones between/around thumbnails. */
 .insert-row {
   position: relative; height: 14px; margin: 1px 0;

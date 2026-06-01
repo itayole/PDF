@@ -14,9 +14,10 @@ const THUMB_W = 150;
 
 // Keep in sync with package.json "version". Shown in the toolbar; the notes
 // appear on hover/focus of the version label.
-const VERSION = '0.35';
+const VERSION = '0.36';
 const RELEASE_NOTES = [
-  'PDF Editor v0.35',
+  'PDF Editor v0.36',
+  '• Empty left pane shows an "add file" drop target with a + and a prompt',
   '• Drag & drop PDF files onto the left pane (load, or insert at the drop spot)',
   '• "+" insert zones between thumbnails (before first / between / after last)',
   '• Insert picker now defaults to all pages selected',
@@ -118,6 +119,25 @@ function renderThumbs() {
   const st = getState();
   const wrap = $('thumbs');
   wrap.innerHTML = '';
+  $('left-hint').hidden = st.pages.length === 0;
+
+  // Initial state: no document — show an "add file" drop target.
+  if (!st.pages.length) {
+    const empty = document.createElement('button');
+    empty.type = 'button';
+    empty.className = 'thumbs-empty';
+    empty.title = 'Open a PDF';
+    const plus = document.createElement('span');
+    plus.className = 'thumbs-empty-plus';
+    plus.textContent = '+';
+    const text = document.createElement('span');
+    text.className = 'thumbs-empty-text';
+    text.textContent = 'Drop PDF to add pages';
+    empty.append(plus, text);
+    empty.addEventListener('click', () => $('file-open').click());
+    wrap.appendChild(empty);
+    return;
+  }
 
   // "+" zone for inserting pages at a given index (0 = before first page).
   const addInsertRow = (index, edge) => {
