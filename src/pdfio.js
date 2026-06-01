@@ -167,9 +167,12 @@ function drawOverlay(page, o, fonts) {
   const color = rgb(...(o.color || [0, 0, 0]));
   const baselineY = o.yPt - o.size * 0.8; // o.yPt is the text's top edge
   if (o.lang === 'he') {
-    const visual = toVisualRtl(o.text);
-    const w = fonts.heb.widthOfTextAtSize(visual, o.size);
-    page.drawText(visual, { x: o.xPt - w, y: baselineY, size: o.size, font: fonts.heb, color });
+    // Draw Hebrew in logical Unicode order without manual reversal.
+    // fontkit + Noto Sans Hebrew applies RTL shaping automatically, and PDF
+    // viewers handle RTL direction — manual reversal causes double-reversal and
+    // garbled output.
+    const w = fonts.heb.widthOfTextAtSize(o.text, o.size);
+    page.drawText(o.text, { x: o.xPt - w, y: baselineY, size: o.size, font: fonts.heb, color });
   } else {
     page.drawText(o.text, { x: o.xPt, y: baselineY, size: o.size, font: fonts.helv, color });
   }
