@@ -683,16 +683,19 @@ async function openPicker(srcId) {
   const src = getState().sources.get(srcId);
   $('insert-src-name').textContent = src.name;
   $('insert-target').textContent = `Inserting at position ${pendingInsertIndex + 1}`;
-  $('insert-confirm').disabled = true;
   $('insert-grid').innerHTML = '';
   $('insert-modal').hidden = false;
 
   const items = await pageItemsForSource(srcId);
+  // Default to all pages selected (user can deselect the ones they don't want).
+  items.forEach((_, i) => pickerSel.add(i));
+  $('insert-confirm').disabled = pickerSel.size === 0;
+
   items.forEach((item, i) => {
     const card = document.createElement('div');
-    card.className = 'page-card';
+    card.className = 'page-card selected';
     card.dataset.i = i;
-    const check = document.createElement('div'); check.className = 'picker-check';
+    const check = document.createElement('div'); check.className = 'picker-check'; check.textContent = '✓';
     const cw = document.createElement('div'); cw.className = 'page-canvas-wrap';
     const sp = document.createElement('span'); sp.className = 'spinner'; sp.textContent = '…'; cw.appendChild(sp);
     const ft = document.createElement('div'); ft.className = 'page-footer'; ft.textContent = `Page ${i + 1}`;
