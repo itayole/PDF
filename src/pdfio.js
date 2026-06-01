@@ -83,8 +83,51 @@ export async function renderPage(item, scale, canvas) {
     return blankMapper(item, scale, cssW, cssH);
   }
 
+  // Serialise renders of the same source page: pdf.js drops/garbles content
+  // when one PDFPageProxy is rendered to two canvases at once (thumbnail +
+  // viewer, or a re-render burst on resize).
+  return lockPage(`${item.srcId}:${item.srcPageIndex}`, () => renderPdfPage(item, scale, canvas, dpr));
+}
+
+// Per-page promise chain so same-page renders run one at a time.
+const pageChains = new Map();
+function lockPage(key, fn) {
+  const run = (pageChains.get(key) || Promise.resolve()).then(fn, fn);
+  pageChains.set(key, run.then(() => {}, () => {}));
+  return run;
+}
+
+async function renderPdfPage(item, scale, canvas, dpr) {
   const { pdfjsDoc } = getState().sources.get(item.srcId);
   const page = await pdfjsDoc.getPage(item.srcPageIndex + 1);
+
+  // Fitted page: scale the source content (incl. baked rotation) to fit a
+  // target page size, centered, with white margins. Fitted pages keep
+  // item.rotation = 0 — any rotation is folded into fitRot + swapped fitW/fitH.
+  if (item.fitW) {
+    const srcRot = (page.rotate + (item.fitRot || 0)) % 360;
+    const base = page.getViewport({ scale: 1, rotation: srcRot }); // rotated source dims
+    const contentScale = Math.min(item.fitW / base.width, item.fitH / base.height);
+    const vp = page.getViewport({ scale: scale * contentScale, rotation: srcRot });
+    const cssW = item.fitW * scale;
+    const cssH = item.fitH * scale;
+    sizeCanvas(canvas, cssW, cssH, dpr);
+    const ctx = canvas.getContext('2d');
+    // dpr scale + centering offset on the context; render with no extra param
+    // (same proven path as below). White-fill the margins first.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, cssW, cssH);
+    ctx.translate((cssW - vp.width) / 2, (cssH - vp.height) / 2);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    return {
+      cssWidth: cssW,
+      cssHeight: cssH,
+      toPdfPoint: (x, y) => ({ x: x / scale, y: item.fitH - y / scale }),
+      toViewportPoint: (x, y) => ({ x: x * scale, y: (item.fitH - y) * scale }),
+    };
+  }
+
   const rotation = (page.rotate + item.rotation) % 360;
   const viewport = page.getViewport({ scale, rotation });
   sizeCanvas(canvas, viewport.width, viewport.height, dpr);
@@ -153,6 +196,30 @@ function stampPageNumbers(out, cfg, font) {
   });
 }
 
+// Draw a source page scaled to fit a target-size page, centered, preserving
+// aspect ratio (white margins). Mirrors the on-screen fit render.
+async function drawFittedPage(out, srcDoc, item) {
+  const emb = await out.embedPage(srcDoc.getPage(item.srcPageIndex));
+  const page = out.addPage([item.fitW, item.fitH]);
+  const srcRotate = srcDoc.getPage(item.srcPageIndex).getRotation().angle;
+  const Rtot = (((srcRotate + (item.fitRot || 0)) % 360) + 360) % 360;
+  const ew = emb.width, eh = emb.height;
+  const visW = (Rtot === 90 || Rtot === 270) ? eh : ew;
+  const visH = (Rtot === 90 || Rtot === 270) ? ew : eh;
+  const s = Math.min(item.fitW / visW, item.fitH / visH);
+  const drawnW = visW * s, drawnH = visH * s;
+  const left = (item.fitW - drawnW) / 2;
+  const bottom = (item.fitH - drawnH) / 2;
+  // pdf.js renders /Rotate clockwise; pdf-lib rotates counter-clockwise, so the
+  // pdf-lib angle is (360 - Rtot). Anchor point shifts per quadrant.
+  let x = left, y = bottom;
+  if (Rtot === 90) { x = left + drawnW; }
+  else if (Rtot === 180) { x = left + drawnW; y = bottom + drawnH; }
+  else if (Rtot === 270) { y = bottom + drawnH; }
+  page.drawPage(emb, { x, y, xScale: s, yScale: s, rotate: degrees((360 - Rtot) % 360) });
+  return page;
+}
+
 /** Assemble the given ordered page items into a new PDF; returns bytes. */
 export async function assemble(pageItems, { pageNumbering } = {}) {
   const sources = getState().sources;
@@ -168,15 +235,19 @@ export async function assemble(pageItems, { pageNumbering } = {}) {
   const fonts = { helv, heb };
 
   const loaded = new Map(); // srcId -> PDFDocument (loaded once)
+  const loadSrc = async (srcId) => {
+    if (!loaded.has(srcId)) loaded.set(srcId, await PDFDocument.load(sources.get(srcId).bytes.slice()));
+    return loaded.get(srcId);
+  };
+
   for (const item of pageItems) {
     let page;
     if (item.kind === 'blank') {
       page = out.addPage([item.width, item.height]);
+    } else if (item.fitW) {
+      page = await drawFittedPage(out, await loadSrc(item.srcId), item);
     } else {
-      if (!loaded.has(item.srcId)) {
-        loaded.set(item.srcId, await PDFDocument.load(sources.get(item.srcId).bytes.slice()));
-      }
-      const [copied] = await out.copyPages(loaded.get(item.srcId), [item.srcPageIndex]);
+      const [copied] = await out.copyPages(await loadSrc(item.srcId), [item.srcPageIndex]);
       page = out.addPage(copied);
     }
     if (item.rotation) {

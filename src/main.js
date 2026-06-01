@@ -14,9 +14,12 @@ const THUMB_W = 150;
 
 // Keep in sync with package.json "version". Shown in the toolbar; the notes
 // appear on hover/focus of the version label.
-const VERSION = '0.37';
+const VERSION = '0.38';
 const RELEASE_NOTES = [
-  'PDF Editor v0.37',
+  'PDF Editor v0.38',
+  '• Fit page sizes: inserted pages can auto-resize to match the document,',
+  '  and "Resize to smallest/largest" unifies selected pages (scale-to-fit,',
+  '  centered, white margins)',
   '• "Shiluv I²R" link in the toolbar — returns to the portal',
   '• "New" button to clear the editor and start an empty document',
   '',
@@ -63,19 +66,23 @@ function toast(msg, isError = false) {
 const rgbCss = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
 const pageById = (id) => getState().pages.find((p) => p.id === id);
 
+// Output (display/export) page size — the fit target if set, else the source.
+const outW = (it) => it.fitW ?? it.width;
+const outH = (it) => it.fitH ?? it.height;
+
 // Thumbnail bitmap cache keyed by visual identity (so duplicated pages share).
 const thumbCache = new Map();
 function thumbKey(item) {
   return item.kind === 'blank'
     ? `blank:${item.width}x${item.height}:${item.rotation}`
-    : `${item.srcId}:${item.srcPageIndex}:${item.rotation}`;
+    : `${item.srcId}:${item.srcPageIndex}:${item.rotation}:${item.fitW || 0}x${item.fitH || 0}:${item.fitRot || 0}`;
 }
 async function getThumb(item) {
   const key = thumbKey(item);
   if (thumbCache.has(key)) return thumbCache.get(key);
   const promise = (async () => {
     const canvas = document.createElement('canvas');
-    const scale = THUMB_W / item.width;
+    const scale = THUMB_W / outW(item);
     await renderPage(item, scale, canvas);
     return canvas.toDataURL('image/png');
   })();
@@ -228,12 +235,12 @@ function onThumbClick(e, id, index) {
 function fitScale(item) {
   const avail = $('viewer').clientWidth - 48;
   const swap = item.rotation === 90 || item.rotation === 270;
-  const dispW = swap ? item.height : item.width;
+  const dispW = swap ? outH(item) : outW(item);
   return Math.max(0.1, Math.min(3, avail / dispW));
 }
 function dispSize(item, scale) {
   const swap = item.rotation === 90 || item.rotation === 270;
-  return { w: (swap ? item.height : item.width) * scale, h: (swap ? item.width : item.height) * scale };
+  return { w: (swap ? outH(item) : outW(item)) * scale, h: (swap ? outW(item) : outH(item)) * scale };
 }
 
 function renderViewer() {
@@ -315,7 +322,8 @@ async function renderPageInto(rec, scale) {
     rec.container.style.width = `${rec.mapper.cssWidth}px`;
     rec.container.style.height = `${rec.mapper.cssHeight}px`;
     renderOverlaysFor(rec);
-  } catch {
+  } catch (err) {
+    console.error('Page render failed', err);
     rec.rendered = false;
   }
   return rec;
@@ -623,15 +631,59 @@ function ctxAction(act, ids) {
       break;
     }
     case 'extract': extractSelection(ids); break;
+    case 'resize-smallest': resizeSelection(ids, 'smallest'); break;
+    case 'resize-largest': resizeSelection(ids, 'largest'); break;
   }
 }
 
 function rotate(idset, delta) {
   commit((s) => {
-    for (const p of s.pages) if (idset.has(p.id)) p.rotation = ((p.rotation + delta) % 360 + 360) % 360;
+    for (const p of s.pages) {
+      if (!idset.has(p.id)) continue;
+      if (p.fitW) {
+        // Fitted page: fold rotation into the baked source rotation and swap
+        // the target dimensions (a ±90 turn flips portrait/landscape).
+        p.fitRot = (((p.fitRot || 0) + delta) % 360 + 360) % 360;
+        const t = p.fitW; p.fitW = p.fitH; p.fitH = t;
+      } else {
+        p.rotation = ((p.rotation + delta) % 360 + 360) % 360;
+      }
+    }
   });
   lastStackSig = null;
   toast('Rotated');
+}
+
+// Visual (on-screen / output) size of a page, accounting for rotation + fit.
+function visualSize(item) {
+  const swap = item.rotation === 90 || item.rotation === 270;
+  return { w: swap ? outH(item) : outW(item), h: swap ? outW(item) : outH(item) };
+}
+
+// Fit a page's content into a target visual size (w×h), centered. Any current
+// rotation is baked in so the fitted page sits upright at the target size.
+function applyFit(item, w, h) {
+  if (item.kind === 'blank') { item.width = w; item.height = h; item.rotation = 0; return; }
+  item.fitRot = (((item.fitRot || 0) + item.rotation) % 360 + 360) % 360;
+  item.rotation = 0;
+  item.fitW = w; item.fitH = h;
+}
+
+// Resize the targeted pages to the smallest/largest visual size among them.
+function resizeSelection(ids, which) {
+  const idset = new Set(ids);
+  const sized = getState().pages.filter((p) => idset.has(p.id)).map((p) => ({ id: p.id, ...visualSize(p) }));
+  if (sized.length < 1) return;
+  const pick = sized.reduce((best, c) =>
+    which === 'smallest' ? (c.w * c.h < best.w * best.h ? c : best)
+      : (c.w * c.h > best.w * best.h ? c : best), sized[0]);
+  commit((s) => {
+    for (const p of s.pages) {
+      if (idset.has(p.id)) applyFit(p, pick.w, pick.h);
+    }
+  });
+  lastStackSig = null;
+  toast(`Resized to ${which} (${Math.round(pick.w)}×${Math.round(pick.h)} pt)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -648,7 +700,7 @@ async function openZoomFor(item, title) {
   $('zoom-modal').hidden = false;
   const modalW = $('zoom-modal').querySelector('.zoom-body').clientWidth - 32;
   const swap = item.rotation === 90 || item.rotation === 270;
-  const dispW = swap ? item.height : item.width;
+  const dispW = swap ? outH(item) : outW(item);
   const scale = Math.max(0.3, Math.min(3, modalW / dispW));
   await renderPage(item, scale, $('zoom-canvas'));
 }
@@ -771,6 +823,7 @@ window.addEventListener('drop', (e) => { if (dragHasFiles(e)) e.preventDefault()
 // ---------------------------------------------------------------------------
 let pickerSrcId = null;
 let pickerSel = new Set();
+let pickerResizeTarget = null; // visual size of the page to match, or null
 async function openPicker(srcId) {
   pickerSrcId = srcId;
   pickerSel = new Set();
@@ -779,6 +832,17 @@ async function openPicker(srcId) {
   $('insert-target').textContent = `Inserting at position ${pendingInsertIndex + 1}`;
   $('insert-grid').innerHTML = '';
   $('insert-modal').hidden = false;
+
+  // Reference for "resize to match": the page just before the insert point
+  // (the "previous" page), or the first page when inserting at the top.
+  const pages = getState().pages;
+  const refItem = pages[pendingInsertIndex - 1] || pages[pendingInsertIndex] || null;
+  pickerResizeTarget = refItem ? visualSize(refItem) : null;
+  $('insert-resize-wrap').hidden = !pickerResizeTarget;
+  if (pickerResizeTarget) {
+    $('insert-resize-label').textContent =
+      `Resize to match document (${Math.round(pickerResizeTarget.w)}×${Math.round(pickerResizeTarget.h)} pt)`;
+  }
 
   const items = await pageItemsForSource(srcId);
   // Default to all pages selected (user can deselect the ones they don't want).
@@ -810,7 +874,7 @@ async function openPicker(srcId) {
     });
     $('insert-grid').appendChild(card);
     const canvas = document.createElement('canvas');
-    renderPage(item, THUMB_W / item.width, canvas).then(() => cw.replaceChildren(canvas)).catch(() => (sp.textContent = '⚠'));
+    renderPage(item, THUMB_W / outW(item), canvas).then(() => cw.replaceChildren(canvas)).catch(() => (sp.textContent = '⚠'));
   });
 }
 $('insert-select-all').addEventListener('click', () => $('insert-grid').querySelectorAll('.page-card:not(.selected)').forEach((c) => c.click()));
@@ -822,9 +886,11 @@ $('insert-confirm').addEventListener('click', async () => {
   const all = await pageItemsForSource(pickerSrcId);
   const newPages = sel.map((i) => all[i]);
   const at = pendingInsertIndex ?? getState().pages.length;
+  const resize = pickerResizeTarget && $('insert-resize').checked;
+  if (resize) newPages.forEach((p) => applyFit(p, pickerResizeTarget.w, pickerResizeTarget.h));
   commit((s) => { s.pages.splice(at, 0, ...newPages); });
   $('insert-modal').hidden = true;
-  toast(`Inserted ${newPages.length} page${newPages.length === 1 ? '' : 's'}`);
+  toast(`Inserted ${newPages.length} page${newPages.length === 1 ? '' : 's'}` + (resize ? ', resized to match' : ''));
 });
 
 // ---------------------------------------------------------------------------

@@ -80,6 +80,9 @@
       <button data-act="rotate-ccw">↺ Rotate left</button>
       <button data-act="duplicate">⧉ Duplicate</button>
       <hr />
+      <button data-act="resize-smallest">⤡ Resize to smallest</button>
+      <button data-act="resize-largest">⤢ Resize to largest</button>
+      <hr />
       <button data-act="insert-before">⬑ Insert PDF before…</button>
       <button data-act="insert-after">⬐ Insert PDF after…</button>
       <button data-act="blank-after">▢ Insert blank page after</button>
@@ -111,6 +114,10 @@
           <button id="insert-select-all" class="btn btn-sm">Select all</button>
           <button id="insert-select-none" class="btn btn-sm">Clear</button>
           <span id="insert-target" class="pane-hint"></span>
+          <label class="ctl" id="insert-resize-wrap" title="Scale added pages to match the size of the page they're inserted next to">
+            <input type="checkbox" id="insert-resize" checked />
+            <span id="insert-resize-label">Resize to match document</span>
+          </label>
           <button id="insert-confirm" class="btn btn-primary" disabled>Insert selected</button>
         </div>
         <div id="insert-grid" class="grid grid-picker"></div>
