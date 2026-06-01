@@ -14,9 +14,11 @@ const THUMB_W = 150;
 
 // Keep in sync with package.json "version". Shown in the toolbar; the notes
 // appear on hover/focus of the version label.
-const VERSION = '0.36';
+const VERSION = '0.36.1';
 const RELEASE_NOTES = [
-  'PDF Editor v0.36',
+  'PDF Editor v0.36.1',
+  '• Fix: serve the pdf.js .mjs worker with a JavaScript MIME type so PDFs',
+  '  open when the app runs behind nginx (e.g. on the portal at /pdf/)',
   '• Empty left pane shows an "add file" drop target with a + and a prompt',
   '• Drag & drop PDF files onto the left pane (load, or insert at the drop spot)',
   '• "+" insert zones between thumbnails (before first / between / after last)',
