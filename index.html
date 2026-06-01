@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Page Editor</title>
+  </head>
+  <body>
+    <!-- ───────────────── Toolbar ───────────────── -->
+    <header class="toolbar">
+      <h1 class="brand">PDF&nbsp;Editor</h1>
+      <span id="app-version" class="app-version" tabindex="0"></span>
+
+      <div class="toolbar-actions">
+        <button id="btn-open" class="btn">Open PDF…</button>
+        <button id="btn-undo" class="btn" disabled title="Undo (Ctrl+Z)">↶</button>
+        <button id="btn-redo" class="btn" disabled title="Redo (Ctrl+Y)">↷</button>
+        <button id="btn-text" class="btn" disabled title="Add a text box">＋ Text</button>
+        <button id="btn-save" class="btn btn-primary" disabled>Save…</button>
+      </div>
+
+      <div class="toolbar-status">
+        <span id="pdfa-badge" class="pdfa-badge" hidden></span>
+        <span id="doc-name" class="doc-name"></span>
+        <span id="page-count" class="page-count"></span>
+      </div>
+
+      <input id="file-open" type="file" accept="application/pdf" hidden />
+      <input id="file-insert" type="file" accept="application/pdf" hidden />
+    </header>
+
+    <!-- ───────────────── Two-pane workspace ───────────────── -->
+    <main id="workspace" class="workspace">
+      <!-- Left: thumbnails -->
+      <aside class="pane pane-left">
+        <div class="pane-head">
+          <span>Pages</span>
+          <span class="pane-head-actions">
+            <button id="btn-select-all" class="btn btn-sm" disabled>Select all</button>
+          </span>
+        </div>
+        <div id="thumbs" class="thumbs"></div>
+        <p id="left-hint" class="pane-hint">Right-click a page for actions · drag to reorder · Ctrl/Shift-click to multi-select.</p>
+      </aside>
+
+      <div class="splitter"></div>
+
+      <!-- Right: full-size viewer -->
+      <section class="pane pane-right">
+        <div class="viewer-bar">
+          <button id="v-prev" class="btn btn-sm" disabled>‹ Prev</button>
+          <span id="v-indicator" class="v-indicator">—</span>
+          <button id="v-next" class="btn btn-sm" disabled>Next ›</button>
+          <span class="spacer"></span>
+          <button id="v-zoom-out" class="btn btn-sm" disabled>−</button>
+          <span id="v-zoom-level" class="v-indicator">100%</span>
+          <button id="v-zoom-in" class="btn btn-sm" disabled>+</button>
+          <button id="v-fit" class="btn btn-sm" disabled>Fit</button>
+        </div>
+        <div id="viewer" class="viewer">
+          <div id="viewer-empty" class="empty-state">
+            <p>Open a PDF to get started.</p>
+            <p class="hint">Scroll to move through the document · nothing is uploaded.</p>
+          </div>
+          <!-- Page stack is built dynamically (one .viewer-page per page). -->
+          <div id="viewer-stage" class="viewer-stage" hidden></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ───────────────── Right-click context menu ───────────────── -->
+    <div id="ctx" class="ctx" hidden>
+      <button data-act="zoom">🔍 View large (popup)</button>
+      <button data-act="addtext">＋ Add text here</button>
+      <hr />
+      <button data-act="rotate-cw">↻ Rotate right</button>
+      <button data-act="rotate-ccw">↺ Rotate left</button>
+      <button data-act="duplicate">⧉ Duplicate</button>
+      <hr />
+      <button data-act="insert-before">⬑ Insert PDF before…</button>
+      <button data-act="insert-after">⬐ Insert PDF after…</button>
+      <button data-act="blank-after">▢ Insert blank page after</button>
+      <hr />
+      <button data-act="extract">⇲ Extract selection → new PDF</button>
+      <button data-act="delete" class="danger">🗑 Delete</button>
+    </div>
+
+    <!-- ───────────────── Zoom popup ───────────────── -->
+    <div id="zoom-modal" class="modal" hidden>
+      <div class="modal-box modal-box-full">
+        <div class="modal-head">
+          <h2 id="zoom-title">Page</h2>
+          <button id="zoom-close" class="btn-icon" aria-label="Close">×</button>
+        </div>
+        <div class="zoom-body"><canvas id="zoom-canvas"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ───────────────── Insert picker ───────────────── -->
+    <div id="insert-modal" class="modal" hidden>
+      <div class="modal-box">
+        <div class="modal-head">
+          <h2>Insert pages</h2>
+          <button id="insert-close" class="btn-icon" aria-label="Close">×</button>
+        </div>
+        <div class="modal-controls">
+          <span id="insert-src-name" class="doc-name"></span>
+          <button id="insert-select-all" class="btn btn-sm">Select all</button>
+          <button id="insert-select-none" class="btn btn-sm">Clear</button>
+          <span id="insert-target" class="pane-hint"></span>
+          <button id="insert-confirm" class="btn btn-primary" disabled>Insert selected</button>
+        </div>
+        <div id="insert-grid" class="grid grid-picker"></div>
+      </div>
+    </div>
+
+    <!-- ───────────────── Save options ───────────────── -->
+    <div id="save-modal" class="modal" hidden>
+      <div class="modal-box modal-box-sm">
+        <div class="modal-head">
+          <h2>Save PDF</h2>
+          <button id="save-close" class="btn-icon" aria-label="Close">×</button>
+        </div>
+        <div class="save-body">
+          <label class="row">
+            <input type="checkbox" id="pn-enabled" />
+            <span>Add page numbers (in current order)</span>
+          </label>
+          <div id="pn-options" class="pn-options">
+            <label class="row">Position
+              <select id="pn-position">
+                <option value="bottom-center">Bottom center</option>
+                <option value="bottom-right">Bottom right</option>
+                <option value="bottom-left">Bottom left</option>
+                <option value="top-center">Top center</option>
+                <option value="top-right">Top right</option>
+                <option value="top-left">Top left</option>
+              </select>
+            </label>
+            <label class="row">Format
+              <select id="pn-format">
+                <option value="n">1, 2, 3…</option>
+                <option value="n-total">1 / N</option>
+                <option value="page-n">Page 1</option>
+              </select>
+            </label>
+            <label class="row">Start at
+              <input type="number" id="pn-start" value="1" min="0" style="width:5rem" />
+            </label>
+          </div>
+          <div id="save-pdfa-note" class="save-note" hidden></div>
+          <div class="save-actions">
+            <button id="save-cancel" class="btn">Cancel</button>
+            <button id="save-confirm" class="btn btn-primary">Save &amp; download</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

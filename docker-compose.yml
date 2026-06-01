@@ -1,0 +1,8 @@
+services:
+  pdf-editor:
+    image: ghcr.io/itayole/pdf-editor:latest
+    container_name: pdf-editor
+    restart: unless-stopped
+    ports:
+      # host:container — change the host port if 8088 is taken on the NAS.
+      - "8088:80"
