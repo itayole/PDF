@@ -992,6 +992,7 @@ $('btn-redo').addEventListener('click', () => { lastStackSig = null; redo(); });
 $('btn-select-all').addEventListener('click', () => setSelection(getState().pages.map((p) => p.id)));
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('help-modal').hidden) { $('help-modal').hidden = true; return; }
   if (document.activeElement?.isContentEditable) return;
   const ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); lastStackSig = null; undo(); }
