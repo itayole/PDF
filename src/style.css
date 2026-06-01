@@ -38,6 +38,7 @@ html, body {
 .brand { font-size: 1.05rem; font-weight: 700; margin: 0; letter-spacing: 0.5px; }
 .brand::before { content: "▱ "; color: var(--gold); }
 .app-version { font-size: 0.68rem; font-weight: 700; color: var(--gold); cursor: help; opacity: 0.85; }
+.btn-help { font-weight: 900; font-size: 0.95rem; padding: 0.3rem 0.6rem; border-radius: 50%; min-width: 28px; }
 .toolbar-actions { display: flex; gap: 0.4rem; }
 
 /* Back-to-portal brand link (far right of the toolbar). */
@@ -216,6 +217,21 @@ html, body {
 
 /* Zoom popup sits above the insert picker when launched from it. */
 #zoom-modal { z-index: 70; }
+
+/* Help modal */
+.modal-box-help { width: min(780px, 100%); }
+.help-tabs { display: flex; gap: 0.25rem; }
+.help-tab { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); border-radius: 5px 5px 0 0; color: #fff; padding: 0.35rem 0.9rem; font-size: 0.83rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.help-tab:hover { background: rgba(255,255,255,0.25); }
+.help-tab.active { background: var(--bg); color: var(--navy); border-color: var(--bg); }
+.help-body { overflow-y: auto; max-height: calc(90vh - 120px); padding: 1.25rem 1.5rem; font-size: 0.87rem; line-height: 1.7; color: var(--text); }
+.help-body h3 { font-size: 1.05rem; color: var(--navy); margin: 0 0 1rem; border-bottom: 2px solid var(--gold); padding-bottom: 0.4rem; }
+.help-body h4 { font-size: 0.88rem; color: var(--navy); margin: 1.1rem 0 0.3rem; }
+.help-body p { margin: 0 0 0.5rem; }
+.help-body ul { margin: 0.2rem 0 0.5rem; padding-inline-start: 1.4rem; }
+.help-body li { margin-bottom: 0.3rem; }
+.help-body[dir="rtl"] { font-family: 'Segoe UI', Arial, sans-serif; }
+.help-body code { background: #eef1f5; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.82em; }
 .zoom-body { overflow: auto; padding: 1rem; background: #5a6675; display: flex; justify-content: center; }
 .zoom-body canvas { background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.4); max-width: 100%; height: auto; }
 

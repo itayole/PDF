@@ -1003,9 +1003,22 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Version label (release notes on hover/focus).
+// Version label (still carries notes as tooltip for keyboard users).
 $('app-version').textContent = `v${VERSION}`;
 $('app-version').title = RELEASE_NOTES;
+
+// ── Help modal ────────────────────────────────────────────────────────────────
+$('btn-help').addEventListener('click', () => { $('help-modal').hidden = false; });
+$('help-close').addEventListener('click', () => { $('help-modal').hidden = true; });
+$('help-modal').addEventListener('click', (e) => { if (e.target === $('help-modal')) $('help-modal').hidden = true; });
+document.querySelectorAll('.help-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.help-tab').forEach((t) => t.classList.remove('active'));
+    tab.classList.add('active');
+    $('help-guide').hidden = tab.dataset.tab !== 'guide';
+    $('help-notes').hidden = tab.dataset.tab !== 'notes';
+  });
+});
 
 subscribe(render);
 render();

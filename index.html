@@ -18,6 +18,7 @@
         <button id="btn-redo" class="btn" disabled title="Redo (Ctrl+Y)">↷</button>
         <button id="btn-text" class="btn" disabled title="Add a text box">＋ Text</button>
         <button id="btn-save" class="btn btn-primary" disabled>Save…</button>
+        <button id="btn-help" class="btn btn-help" title="User guide &amp; release notes">?</button>
       </div>
 
       <div class="toolbar-status">
@@ -163,6 +164,112 @@
             <button id="save-cancel" class="btn">Cancel</button>
             <button id="save-confirm" class="btn btn-primary">Save &amp; download</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────────────── Help modal ───────────────── -->
+    <div id="help-modal" class="modal" hidden>
+      <div class="modal-box modal-box-help">
+        <div class="modal-head">
+          <div class="help-tabs">
+            <button class="help-tab active" data-tab="guide">מדריך למשתמש</button>
+            <button class="help-tab" data-tab="notes">Release Notes</button>
+          </div>
+          <button id="help-close" class="btn-icon" aria-label="Close">×</button>
+        </div>
+
+        <!-- Hebrew user guide -->
+        <div id="help-guide" class="help-body" dir="rtl" lang="he">
+          <h3>PDF Editor — מדריך מהיר</h3>
+
+          <h4>פתיחת קובץ</h4>
+          <p>לחץ על <strong>Open PDF…</strong>, גרור קובץ PDF על חלונית העמודים (שמאל), או לחץ על כפתור ה-<strong>+</strong> בחלונית.</p>
+
+          <h4>ניווט בין עמודים</h4>
+          <p>גלול את חלונית התצוגה הגדולה (ימין) כדי לדפדף בין העמודים. לחץ על תמונה ממוזערת בשמאל כדי לעבור לעמוד ספציפי. השתמש בכפתורי <strong>Prev / Next</strong> או בגלגלת העכבר.</p>
+
+          <h4>הוספת עמודים</h4>
+          <ul>
+            <li>לחץ על <strong>+</strong> שמופיע בין העמודים (או מעל / מתחת לרשימה) כדי להוסיף עמודים מקובץ PDF אחר.</li>
+            <li>גרור קובץ PDF על חלונית העמודים — אם כבר קיים מסמך, ייפתח חלון בחירת עמודים.</li>
+            <li>בחלון ההוספה: כברירת מחדל <strong>כל העמודים נבחרים</strong>. בטל בחירה של עמודים שאינך רוצה.</li>
+            <li>סמן <strong>Resize to match document</strong> כדי להתאים את גודל העמודים החדשים לגודל הקיים.</li>
+          </ul>
+
+          <h4>מחיקה, סידור מחדש ופעולות נוספות</h4>
+          <p>לחץ לחיצה ימנית על עמוד כדי לקבל תפריט:</p>
+          <ul>
+            <li><strong>מחק עמוד</strong> — מחיקת עמוד אחד או בחירה מרובה (Ctrl+לחיצה / Shift+לחיצה).</li>
+            <li><strong>סובב</strong> — ימינה או שמאלה.</li>
+            <li><strong>שכפל</strong> — יוצר עותק של העמוד.</li>
+            <li><strong>הוסף עמוד ריק</strong> — לאחר העמוד הנבחר.</li>
+            <li><strong>Resize to smallest / largest</strong> — מאחד גדלים שונים בבחירה.</li>
+            <li><strong>Extract → new PDF</strong> — שמירת העמודים הנבחרים כקובץ PDF נפרד.</li>
+          </ul>
+          <p>גרור תמונות ממוזערות לשינוי הסדר. לבחירה מרובה: Ctrl+לחיצה, Shift+לחיצה, או <strong>Select all</strong>.</p>
+
+          <h4>הוספת טקסט</h4>
+          <p>לחץ על <strong>＋ Text</strong> בסרגל, ואז לחץ על העמוד במיקום הרצוי. הטקסט מזוהה כעברית או אנגלית באופן אוטומטי (כולל ניפוי RTL).</p>
+
+          <h4>שמירה</h4>
+          <p>לחץ על <strong>Save…</strong> לפתיחת חלון האפשרויות: ניתן להוסיף <strong>מספרי עמודים</strong> (מיקום, פורמט, מספר התחלה). לחץ <strong>Save &amp; download</strong> להורדת הקובץ הערוך.</p>
+
+          <h4>צפייה מוגדלת</h4>
+          <p>לחץ פעמיים על תמונה ממוזערת (או לחץ ימני ← <em>View large</em>) לצפייה בעמוד בחלון מוגדל. בחלון הוספת עמודים — לחץ על 🔍 בכרטיס העמוד לצפייה לפני הבחירה.</p>
+
+          <h4>ביטול / חזרה</h4>
+          <p>השתמש ב-<strong>↶ ↷</strong> בסרגל, או במקשי Ctrl+Z / Ctrl+Y.</p>
+
+          <h4>הערות</h4>
+          <ul>
+            <li>כל הפעולות מתבצעות <strong>בדפדפן בלבד</strong> — שום קובץ לא עולה לשרת.</li>
+            <li>PDF עם שכבת טקסט (searchable) — השכבה נשמרת בפלט.</li>
+            <li>קבצי PDF/A מזוהים ומוצג אזהרה — הפלט הוא PDF רגיל.</li>
+          </ul>
+        </div>
+
+        <!-- English release notes -->
+        <div id="help-notes" class="help-body" dir="ltr" lang="en" hidden>
+          <h3>Release Notes</h3>
+
+          <h4>v0.38 — 2026</h4>
+          <ul>
+            <li>Fit page sizes: inserted pages auto-resize to match the document (default on in the insert picker); right-click selected pages → <em>Resize to smallest</em> or <em>Resize to largest</em> to unify mixed sizes. Scaling is aspect-ratio preserving, centered with white margins, live in the editor and in the saved file, and undoable.</li>
+            <li>Per-page render serialisation — hardens all rendering when the same page is requested concurrently (thumbnail + viewer).</li>
+          </ul>
+
+          <h4>v0.37 — 2026</h4>
+          <ul>
+            <li>Added <strong>Shiluv I²R</strong> link in the toolbar returning to the portal.</li>
+            <li>Added <strong>New</strong> button to clear the editor and start a fresh document.</li>
+          </ul>
+
+          <h4>v0.36 — 2026</h4>
+          <ul>
+            <li>Empty left pane now shows a "+" drop target with a prompt instead of a blank panel.</li>
+            <li><strong>Fix (v0.36.1):</strong> pdf.js worker was served as <code>application/octet-stream</code> by nginx, preventing PDFs from opening on the deployed portal. Fixed by mapping <code>.mjs</code> to a JavaScript MIME type in nginx config.</li>
+          </ul>
+
+          <h4>v0.35 — 2026</h4>
+          <ul>
+            <li>Drag &amp; drop a PDF onto the left pane: loads as the document when empty, or opens the insert picker targeting the drop position when a document is already open.</li>
+            <li>"+" insert zones at the top, bottom, and between every pair of thumbnails.</li>
+            <li>Insert picker defaults to all pages selected.</li>
+          </ul>
+
+          <h4>v0.3 — 2026 (initial release)</h4>
+          <ul>
+            <li>Two-pane workspace: scrollable thumbnail rail (left) + continuous full-size scroll viewer (right).</li>
+            <li>Open, delete, insert pages from other PDFs, reorder (multi-select drag), rotate, duplicate, insert blank pages, extract selection to a new PDF.</li>
+            <li>Add text overlays in English &amp; Hebrew (RTL, embedded Noto Sans Hebrew font).</li>
+            <li>Page numbering on save (position, format, start value).</li>
+            <li>Searchable text layer preserved in the output.</li>
+            <li>PDF/A detection with a warning that the saved copy is a standard PDF.</li>
+            <li>Per-page zoom popup in the thumbnail rail and in the insert picker.</li>
+            <li>Undo / redo (Ctrl+Z / Ctrl+Y).</li>
+            <li>Deployable as a Docker / nginx container; all processing is client-side.</li>
+          </ul>
         </div>
       </div>
     </div>
