@@ -114,6 +114,23 @@ function renderThumbs() {
   const wrap = $('thumbs');
   wrap.innerHTML = '';
 
+  // "+" zone for inserting pages at a given index (0 = before first page).
+  const addInsertRow = (index, edge) => {
+    const row = document.createElement('div');
+    row.className = 'insert-row' + (edge ? ' insert-row-edge' : '');
+    row.title = index === 0 ? 'Insert pages before the first page'
+      : index === st.pages.length ? 'Insert pages after the last page'
+      : `Insert pages here (before page ${index + 1})`;
+    const plus = document.createElement('span');
+    plus.className = 'insert-plus';
+    plus.textContent = '+';
+    row.appendChild(plus);
+    row.addEventListener('click', (e) => { e.stopPropagation(); beginInsertAt(index); });
+    wrap.appendChild(row);
+  };
+
+  if (st.pages.length) addInsertRow(0, true);
+
   st.pages.forEach((item, index) => {
     const el = document.createElement('div');
     el.className = 'thumb';
@@ -152,6 +169,8 @@ function renderThumbs() {
     el.addEventListener('click', (e) => onThumbClick(e, item.id, index));
     el.addEventListener('dblclick', () => openZoom(item.id));
     el.addEventListener('contextmenu', (e) => onThumbContext(e, item.id));
+
+    addInsertRow(index + 1, index === st.pages.length - 1);
   });
 }
 
@@ -572,10 +591,8 @@ function ctxAction(act, ids) {
       break;
     case 'insert-before':
     case 'insert-after': {
-      const st = getState();
-      const idx = st.pages.findIndex((p) => p.id === ctxTargetId);
-      pendingInsertIndex = act === 'insert-before' ? idx : idx + 1;
-      $('file-insert').click();
+      const idx = getState().pages.findIndex((p) => p.id === ctxTargetId);
+      beginInsertAt(act === 'insert-before' ? idx : idx + 1);
       break;
     }
     case 'extract': extractSelection(ids); break;
@@ -635,6 +652,12 @@ $('file-open').addEventListener('change', async () => {
     toast('Could not open this PDF. Is it password-protected?', true);
   }
 });
+
+// Start an insert at the given page index, then open the file chooser.
+function beginInsertAt(index) {
+  pendingInsertIndex = index;
+  $('file-insert').click();
+}
 
 $('file-insert').addEventListener('change', async () => {
   const file = $('file-insert').files[0];
