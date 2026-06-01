@@ -14,24 +14,24 @@ const THUMB_W = 150;
 
 // Keep in sync with package.json "version". Shown in the toolbar; the notes
 // appear on hover/focus of the version label.
-const VERSION = '0.36.1';
+const VERSION = '0.37';
 const RELEASE_NOTES = [
-  'PDF Editor v0.36.1',
-  '• Fix: serve the pdf.js .mjs worker with a JavaScript MIME type so PDFs',
-  '  open when the app runs behind nginx (e.g. on the portal at /pdf/)',
+  'PDF Editor v0.37',
+  '• "Shiluv I²R" link in the toolbar — returns to the portal',
+  '• "New" button to clear the editor and start an empty document',
+  '',
+  'Earlier:',
+  '• Fix: pdf.js .mjs worker served as JavaScript behind nginx (portal /pdf/)',
   '• Empty left pane shows an "add file" drop target with a + and a prompt',
   '• Drag & drop PDF files onto the left pane (load, or insert at the drop spot)',
   '• "+" insert zones between thumbnails (before first / between / after last)',
-  '• Insert picker now defaults to all pages selected',
-  '',
-  'Since v0.3:',
+  '• Insert picker defaults to all pages selected',
   '• Two-pane workspace: thumbnail rail + continuous full-size scroll viewer',
   '• Delete, insert (from other PDFs), reorder (multi-select drag), rotate,',
   '  duplicate, blank pages, extract selection',
   '• Add text overlays in English & Hebrew (RTL)',
   '• Page numbering on save; searchable text preserved; PDF/A detection + warning',
-  '• Per-page zoom preview in the insert picker',
-  '• Undo / redo',
+  '• Per-page zoom preview in the insert picker; undo / redo',
 ].join('\n');
 
 // Transient view state (not in undo history)
@@ -658,6 +658,18 @@ $('zoom-modal').addEventListener('click', (e) => { if (e.target === $('zoom-moda
 // ---------------------------------------------------------------------------
 // Open / insert files
 // ---------------------------------------------------------------------------
+// New: clear the working document back to the empty initial state.
+$('btn-new').addEventListener('click', () => {
+  if (getState().pages.length && !confirm('Start a new document? The current pages will be cleared.')) return;
+  commit((s) => { s.pages = []; s.docName = 'document.pdf'; });
+  const st = getState();
+  st.currentPageId = null;
+  st.selection = new Set();
+  lastStackSig = null;
+  emit();
+  toast('New document');
+});
+
 $('btn-open').addEventListener('click', () => $('file-open').click());
 $('file-open').addEventListener('change', async () => {
   const file = $('file-open').files[0];

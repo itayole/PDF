@@ -39,6 +39,16 @@ html, body {
 .brand::before { content: "▱ "; color: var(--gold); }
 .app-version { font-size: 0.68rem; font-weight: 700; color: var(--gold); cursor: help; opacity: 0.85; }
 .toolbar-actions { display: flex; gap: 0.4rem; }
+
+/* Back-to-portal brand link (far right of the toolbar). */
+.portal-link {
+  margin-left: 0.5rem; color: var(--gold); font-weight: 700; font-size: 0.85rem;
+  text-decoration: none; white-space: nowrap; padding: 0.35rem 0.6rem;
+  border: 1px solid transparent; border-radius: 6px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.portal-link::before { content: "▱ "; }
+.portal-link:hover { background: rgba(201, 162, 75, 0.15); border-color: var(--gold); }
 .toolbar-status {
   margin-left: auto; display: flex; align-items: center; gap: 0.75rem;
   font-size: 0.8rem;
