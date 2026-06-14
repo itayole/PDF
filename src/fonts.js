@@ -19,15 +19,20 @@ const HEB = /[֐-׿]/;
 export const containsHebrew = (s) => HEB.test(s);
 
 /**
- * Convert a logical-order string into the visual (left-to-right) order needed
- * to draw RTL text glyph-by-glyph with pdf-lib.
+ * Split a logical-order string into maximal directional runs — alternating
+ * Hebrew (`heb: true`) and non-Hebrew (Latin / digits / punctuation / spaces).
  *
- * Simplified bidi: split into Hebrew vs non-Hebrew runs, reverse the run order
- * (RTL base direction), and reverse the characters within each Hebrew run.
- * Latin/number runs keep their internal order. Good for plain Hebrew and
- * simple mixed text; complex bidi (nested directions) is not fully handled.
+ * This is the basis of a *simplified* bidi for RTL drawing with pdf-lib, which
+ * has no Unicode Bidi Algorithm. The caller lays the runs out right-to-left in
+ * logical order and draws each run with its own `drawText`, so fontkit shapes
+ * each run in isolation: Hebrew runs reorder to correct visual RTL, while
+ * Latin/number runs keep their natural left-to-right order (drawing a mixed
+ * string in one call makes fontkit flip the embedded numbers/Latin).
+ *
+ * Handles plain Hebrew and the practical mixed cases (names, numbers, dates).
+ * Complex nested bidi and directional punctuation are not fully resolved.
  */
-export function toVisualRtl(text) {
+export function splitBidiRuns(text) {
   const runs = [];
   let cur = '';
   let curHeb = null;
@@ -35,9 +40,8 @@ export function toVisualRtl(text) {
     const h = HEB.test(ch);
     if (curHeb === null) { curHeb = h; cur = ch; }
     else if (h === curHeb) { cur += ch; }
-    else { runs.push({ h: curHeb, t: cur }); curHeb = h; cur = ch; }
+    else { runs.push({ heb: curHeb, text: cur }); curHeb = h; cur = ch; }
   }
-  if (cur) runs.push({ h: curHeb, t: cur });
-  runs.reverse();
-  return runs.map((r) => (r.h ? [...r.t].reverse().join('') : r.t)).join('');
+  if (cur) runs.push({ heb: curHeb, text: cur });
+  return runs;
 }

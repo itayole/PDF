@@ -3,7 +3,7 @@
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { fontkit, loadHebrewFontBytes, toVisualRtl, containsHebrew } from './fonts.js';
+import { fontkit, loadHebrewFontBytes, splitBidiRuns, containsHebrew } from './fonts.js';
 import { getState, uid } from './store.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -167,12 +167,18 @@ function drawOverlay(page, o, fonts) {
   const color = rgb(...(o.color || [0, 0, 0]));
   const baselineY = o.yPt - o.size * 0.8; // o.yPt is the text's top edge
   if (o.lang === 'he') {
-    // Draw Hebrew in logical Unicode order without manual reversal.
-    // fontkit + Noto Sans Hebrew applies RTL shaping automatically, and PDF
-    // viewers handle RTL direction — manual reversal causes double-reversal and
-    // garbled output.
-    const w = fonts.heb.widthOfTextAtSize(o.text, o.size);
-    page.drawText(o.text, { x: o.xPt - w, y: baselineY, size: o.size, font: fonts.heb, color });
+    // Simplified bidi for RTL overlays. fontkit reorders a Hebrew run to correct
+    // visual order on its own, but drawing a *mixed* Hebrew+Latin/digit string in
+    // one call makes it flip the embedded numbers/Latin (no full bidi engine).
+    // So split into directional runs and lay them out right-to-left in logical
+    // order, drawing each run separately — fontkit then shapes each in isolation.
+    // The Hebrew font carries Latin+digit glyphs, so it renders every run safely.
+    let x = o.xPt; // right edge; runs are placed leftward from here
+    for (const run of splitBidiRuns(o.text)) {
+      const w = fonts.heb.widthOfTextAtSize(run.text, o.size);
+      x -= w;
+      page.drawText(run.text, { x, y: baselineY, size: o.size, font: fonts.heb, color });
+    }
   } else {
     page.drawText(o.text, { x: o.xPt, y: baselineY, size: o.size, font: fonts.helv, color });
   }

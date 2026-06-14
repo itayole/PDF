@@ -14,16 +14,18 @@ const THUMB_W = 150;
 
 // Keep in sync with package.json "version". Shown in the toolbar; the notes
 // appear on hover/focus of the version label.
-const VERSION = '0.38';
+const VERSION = '0.39';
 const RELEASE_NOTES = [
-  'PDF Editor v0.38',
+  'PDF Editor v0.39',
+  '• Fix: Hebrew text mixed with numbers/Latin (names, ID numbers, dates)',
+  '  now saves in correct reading order — no more reversed digits or letters',
+  '',
+  'Earlier:',
   '• Fit page sizes: inserted pages can auto-resize to match the document,',
   '  and "Resize to smallest/largest" unifies selected pages (scale-to-fit,',
   '  centered, white margins)',
   '• "Shiluv I²R" link in the toolbar — returns to the portal',
   '• "New" button to clear the editor and start an empty document',
-  '',
-  'Earlier:',
   '• Fix: pdf.js .mjs worker served as JavaScript behind nginx (portal /pdf/)',
   '• Empty left pane shows an "add file" drop target with a + and a prompt',
   '• Drag & drop PDF files onto the left pane (load, or insert at the drop spot)',
