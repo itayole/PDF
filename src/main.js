@@ -19,6 +19,9 @@ const RELEASE_NOTES = [
   'PDF Editor v0.39',
   '• Fix: Hebrew text mixed with numbers/Latin (names, ID numbers, dates)',
   '  now saves in correct reading order — no more reversed digits or letters',
+  '• Fillable forms: added text now stays visible on save. A "Flatten form',
+  '  fields" option (Save dialog) bakes the form so text isn\'t hidden behind',
+  '  the field boxes',
   '',
   'Earlier:',
   '• Fit page sizes: inserted pages can auto-resize to match the document,',
@@ -937,6 +940,9 @@ $('btn-save').addEventListener('click', () => {
   const note = $('save-pdfa-note');
   if (pdfa) { note.hidden = false; note.textContent = '⚠ The source is PDF/A. Searchable text is preserved, but the saved file is a standard PDF and will not be PDF/A-conformant.'; }
   else { note.hidden = true; }
+  // Offer form-flattening only when a source actually has interactive fields.
+  const hasWidgets = [...st.sources.values()].some((s) => s.hasWidgets);
+  $('flatten-row').hidden = !hasWidgets;
   $('save-modal').hidden = false;
 });
 $('pn-enabled').addEventListener('change', (e) => { $('pn-options').style.display = e.target.checked ? '' : 'none'; });
@@ -957,7 +963,7 @@ $('save-confirm').addEventListener('click', async () => {
   $('save-modal').hidden = true;
   $('btn-save').disabled = true;
   try {
-    const bytes = await assemble(st.pages, { pageNumbering: st.pageNumbering });
+    const bytes = await assemble(st.pages, { pageNumbering: st.pageNumbering, flattenForms: $('flatten-forms').checked });
     downloadBytes(bytes, st.docName.replace(/\.pdf$/i, '') + '-edited.pdf');
     toast('Saved');
   } catch (err) {

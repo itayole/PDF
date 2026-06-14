@@ -1,6 +1,10 @@
 // PDF I/O: load sources, render pages to canvases, and assemble/export the
 // edited document. Everything runs in the browser.
-import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
+import {
+  PDFDocument, StandardFonts, degrees, rgb,
+  PDFName, PDFDict, PDFRawStream, PDFArray,
+  pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject,
+} from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { fontkit, loadHebrewFontBytes, splitBidiRuns, containsHebrew } from './fonts.js';
@@ -34,14 +38,25 @@ async function detectPdfA(pdfjsDoc) {
   return { isPdfA: false, part: '' };
 }
 
+/** True if any page carries an interactive form-field (Widget) annotation. */
+async function detectFormWidgets(pdfjsDoc) {
+  for (let i = 1; i <= pdfjsDoc.numPages; i++) {
+    const page = await pdfjsDoc.getPage(i);
+    const anns = await page.getAnnotations();
+    if (anns.some((a) => a.subtype === 'Widget')) return true;
+  }
+  return false;
+}
+
 /** Load a PDF File into the store's sources. Returns { srcId, numPages, isPdfA }. */
 export async function registerSource(file) {
   const bytes = await readFileBytes(file);
   // pdf.js may detach the buffer it's handed, so give it a copy.
   const pdfjsDoc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
   const { isPdfA, part } = await detectPdfA(pdfjsDoc);
+  const hasWidgets = await detectFormWidgets(pdfjsDoc);
   const srcId = uid('s');
-  getState().sources.set(srcId, { name: file.name, bytes, pdfjsDoc, isPdfA, pdfaPart: part });
+  getState().sources.set(srcId, { name: file.name, bytes, pdfjsDoc, isPdfA, pdfaPart: part, hasWidgets });
   return { srcId, numPages: pdfjsDoc.numPages, isPdfA, part };
 }
 
@@ -229,8 +244,102 @@ async function drawFittedPage(out, srcDoc, item) {
   return page;
 }
 
+// Annotation flag bits (PDF 32000-1, 12.5.3) we must honour when baking.
+const F_HIDDEN = 1 << 1; // bit 2
+const F_NOVIEW = 1 << 5; // bit 6
+
+/**
+ * Flatten a page's interactive form-field widgets into its content stream so
+ * added text overlays (drawn afterwards) are no longer painted over by the
+ * widgets' opaque appearances. Interactive forms render widget annotations on
+ * top of page content; without this, overlays land *under* the white field
+ * boxes and appear missing or faint.
+ *
+ * For each /Widget annotation we draw its normal appearance (AP /N) as a Form
+ * XObject mapped from the appearance BBox (×Matrix) onto the annotation Rect
+ * per PDF 32000-1 §12.5.5, then drop the widget from the annotation array.
+ * Returns the number of widgets baked.
+ */
+function flattenWidgets(page, context) {
+  const annots = page.node.Annots && page.node.Annots();
+  if (!annots || !annots.asArray) return 0;
+  const refs = annots.asArray().slice();
+  const kept = [];
+  let baked = 0;
+
+  for (const ref of refs) {
+    const a = context.lookup(ref);
+    if (!(a instanceof PDFDict) || a.get(PDFName.of('Subtype'))?.toString() !== '/Widget') {
+      kept.push(ref);
+      continue;
+    }
+    // From here on the widget is consumed (baked or dropped) — never kept,
+    // so it can't paint over the overlays.
+    const ap = a.lookupMaybe(PDFName.of('AP'), PDFDict);
+    const rectObj = a.lookup(PDFName.of('Rect'), PDFArray);
+    if (!ap || !rectObj) continue;
+
+    const flags = Number(a.lookup(PDFName.of('F'))?.asNumber?.() ?? 0);
+    if (flags & (F_HIDDEN | F_NOVIEW)) continue; // not visible → just drop it
+
+    // /N may be the appearance stream directly, or a sub-dictionary of states
+    // keyed by the widget's current /AS (e.g. checkboxes).
+    let nObj = ap.lookup(PDFName.of('N'));
+    if (nObj instanceof PDFDict && !(nObj instanceof PDFRawStream)) {
+      const as = a.get(PDFName.of('AS'));
+      nObj = as ? context.lookup(nObj.get(as)) : undefined;
+    }
+    if (!(nObj instanceof PDFRawStream)) continue;
+    const nRef = ap.get(PDFName.of('N')) instanceof PDFRawStream ? null : ap.get(PDFName.of('N'));
+    // Resolve a reference we can put in the XObject resource dict.
+    const xobjRef = nRef && !(nRef instanceof PDFRawStream) ? nRef : context.register(nObj);
+
+    const num = (o) => (o && o.asNumber ? o.asNumber() : 0);
+    const rect = rectObj.asArray().map(num);
+    const bboxObj = nObj.dict.lookup(PDFName.of('BBox'), PDFArray);
+    const bbox = bboxObj ? bboxObj.asArray().map(num) : [0, 0, rect[2] - rect[0], rect[3] - rect[1]];
+    const mObj = nObj.dict.lookupMaybe(PDFName.of('Matrix'), PDFArray);
+    const m = mObj ? mObj.asArray().map(num) : [1, 0, 0, 1, 0, 0];
+
+    // Transform the appearance BBox corners by its Matrix, take the bounds.
+    const corners = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[2], bbox[3]], [bbox[0], bbox[3]]]
+      .map(([x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+    const xs = corners.map((p) => p[0]);
+    const ys = corners.map((p) => p[1]);
+    const tx0 = Math.min(...xs), ty0 = Math.min(...ys), tx1 = Math.max(...xs), ty1 = Math.max(...ys);
+    const rx0 = Math.min(rect[0], rect[2]), ry0 = Math.min(rect[1], rect[3]);
+    const rx1 = Math.max(rect[0], rect[2]), ry1 = Math.max(rect[1], rect[3]);
+    const sx = (tx1 - tx0) === 0 ? 1 : (rx1 - rx0) / (tx1 - tx0);
+    const sy = (ty1 - ty0) === 0 ? 1 : (ry1 - ry0) / (ty1 - ty0);
+    // Matrix A maps the (Matrix-transformed) BBox onto Rect; the Do operator
+    // applies the XObject's own /Matrix internally, so we emit only A here.
+    const e = rx0 - sx * tx0;
+    const f = ry0 - sy * ty0;
+
+    const name = `Flt${baked}`;
+    let res = page.node.Resources();
+    if (!res) { res = context.obj({}); page.node.set(PDFName.of('Resources'), res); }
+    let xdict = res.lookup(PDFName.of('XObject'), PDFDict);
+    if (!xdict) { xdict = context.obj({}); res.set(PDFName.of('XObject'), xdict); }
+    xdict.set(PDFName.of(name), xobjRef);
+
+    page.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(sx, 0, 0, sy, e, f),
+      drawObject(name),
+      popGraphicsState(),
+    );
+    baked++;
+  }
+
+  const newArr = PDFArray.withContext(context);
+  kept.forEach((r) => newArr.push(r));
+  page.node.set(PDFName.of('Annots'), newArr);
+  return baked;
+}
+
 /** Assemble the given ordered page items into a new PDF; returns bytes. */
-export async function assemble(pageItems, { pageNumbering } = {}) {
+export async function assemble(pageItems, { pageNumbering, flattenForms = true } = {}) {
   const sources = getState().sources;
   const out = await PDFDocument.create();
 
@@ -263,6 +372,10 @@ export async function assemble(pageItems, { pageNumbering } = {}) {
       const cur = page.getRotation().angle;
       page.setRotation(degrees((cur + item.rotation) % 360));
     }
+    // Bake interactive form-field widgets into the page first, so overlays draw
+    // on top of (not under) the form's opaque field boxes. No-op for pages
+    // without widgets (blank pages, fitted pages whose annotations weren't copied).
+    if (flattenForms) flattenWidgets(page, out.context);
     for (const o of item.overlays || []) drawOverlay(page, o, fonts);
   }
 
