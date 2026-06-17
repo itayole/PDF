@@ -7,23 +7,29 @@ import {
 import {
   registerSource, pageItemsForSource, renderPage, assemble,
 } from './pdfio.js';
-import { containsHebrew } from './fonts.js';
+import { containsHebrew, FONTS, getFont, resolveFont, DEFAULT_LATIN, ensureFontFaces } from './fonts.js';
 
 const $ = (id) => document.getElementById(id);
 const THUMB_W = 150;
 
 // Keep in sync with package.json "version". Shown in the toolbar; the notes
 // appear on hover/focus of the version label.
-const VERSION = '0.39';
+const VERSION = '0.40';
 const RELEASE_NOTES = [
-  'PDF Editor v0.39',
+  'PDF Editor v0.40',
+  '• Choose a font per text box: Latin (Helvetica/Times/Courier) and Hebrew',
+  '  families (Noto Sans Hebrew, Rubik, Heebo, Assistant, Frank Ruhl). Pick',
+  '  from the dropdown in the text box toolbar; preview matches the saved PDF',
+  '• Cover existing content with a white "patch", then write new text on top',
+  '  (advanced tool — double-click the ▱ mark to reveal it). Note: this hides',
+  '  content visually; it is not secure redaction',
+  '',
+  'Earlier:',
   '• Fix: Hebrew text mixed with numbers/Latin (names, ID numbers, dates)',
   '  now saves in correct reading order — no more reversed digits or letters',
   '• Fillable forms: added text now stays visible on save. A "Flatten form',
   '  fields" option (Save dialog) bakes the form so text isn\'t hidden behind',
   '  the field boxes',
-  '',
-  'Earlier:',
   '• Fit page sizes: inserted pages can auto-resize to match the document,',
   '  and "Resize to smallest/largest" unifies selected pages (scale-to-fit,',
   '  centered, white margins)',
@@ -46,10 +52,16 @@ const RELEASE_NOTES = [
 let currentScale = 1;
 let fitMode = true;
 let placing = false;        // "add text" mode armed
+let patching = false;       // "cover with patch" mode armed (advanced tool)
 let lastClickedId = null;   // for shift-range selection
 let ctxTargetId = null;     // page the context menu was opened on
 let pendingInsertIndex = null;
 let editingSize = 16;
+let editingFont = DEFAULT_LATIN; // remembered across overlays; the editing toolbar drives it
+
+// Hidden "advanced" tools (currently: the white-patch cover) are revealed by
+// double-clicking the ▱ brand mark. Persisted so power users keep it on.
+let advanced = localStorage.getItem('pdfeditor.advanced') === '1';
 
 // Continuous-scroll viewer: one record per page in the stack.
 // id -> { container, canvas, layer, item, rendered, mapper }
@@ -69,6 +81,10 @@ function toast(msg, isError = false) {
   toast._t = setTimeout(() => (el.hidden = true), 3200);
 }
 const rgbCss = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+// Colors are stored as [r,g,b] floats in 0..1 (pdf-lib's convention); convert
+// to/from the #rrggbb that <input type="color"> uses.
+const rgbToHex = (c) => '#' + c.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+const hexToRgb = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
 const pageById = (id) => getState().pages.find((p) => p.id === id);
 
 // Output (display/export) page size — the fit target if set, else the source.
@@ -113,6 +129,11 @@ function renderToolbar() {
   $('btn-save').disabled = !has;
   $('btn-select-all').disabled = !has;
   $('btn-text').classList.toggle('btn-text-active', placing);
+
+  const patchBtn = $('btn-patch');
+  patchBtn.hidden = !advanced;
+  patchBtn.disabled = !has;
+  patchBtn.classList.toggle('btn-text-active', patching);
 
   $('doc-name').textContent = has ? st.docName : '';
   $('page-count').textContent = has ? `${st.pages.length} page${st.pages.length === 1 ? '' : 's'}` : '';
@@ -340,6 +361,26 @@ function renderOverlaysFor(rec) {
   if (layer.querySelector('.text-overlay.editing')) return;
   layer.innerHTML = '';
   if (!rec.mapper) return;
+  // Patches render first so text overlays (added below) sit on top of them.
+  // Size from two opposite PDF corners so the box stays correct under page
+  // rotation / fit (the mapper rotates points; a 90° turn swaps the corners).
+  for (const p of rec.item.patches || []) {
+    const a = rec.mapper.toViewportPoint(p.xPt, p.yPt);
+    const b = rec.mapper.toViewportPoint(p.xPt + p.wPt, p.yPt - p.hPt);
+    const el = document.createElement('div');
+    el.className = 'patch-overlay';
+    el.dataset.id = p.id;
+    el.style.left = `${Math.min(a.x, b.x)}px`;
+    el.style.top = `${Math.min(a.y, b.y)}px`;
+    el.style.width = `${Math.abs(a.x - b.x)}px`;
+    el.style.height = `${Math.abs(a.y - b.y)}px`;
+    el.style.background = rgbCss(p.color || [1, 1, 1]);
+    const handle = document.createElement('div');
+    handle.className = 'patch-handle';
+    el.appendChild(handle);
+    attachPatchHandlers(el, handle, p, rec);
+    layer.appendChild(el);
+  }
   for (const o of rec.item.overlays || []) {
     const vp = rec.mapper.toViewportPoint(o.xPt, o.yPt);
     const el = document.createElement('div');
@@ -349,6 +390,7 @@ function renderOverlaysFor(rec) {
     el.style.left = `${vp.x}px`;
     el.style.top = `${vp.y}px`;
     el.style.fontSize = `${o.size * currentScale}px`;
+    el.style.fontFamily = resolveFont(o.font, o.text).css; // match the saved output
     el.style.color = rgbCss(o.color);
     el.textContent = o.text;
     attachOverlayHandlers(el, o, rec);
@@ -415,9 +457,154 @@ $('v-fit').addEventListener('click', () => { fitMode = true; lastStackSig = null
 // ---------------------------------------------------------------------------
 $('btn-text').addEventListener('click', () => {
   placing = !placing;
+  if (placing && patching) { patching = false; $('viewer').classList.remove('patching'); }
   $('viewer').classList.toggle('placing', placing);
   renderToolbar();
   if (placing) toast('Click on the page where you want to add text');
+});
+
+// ── White-patch cover (advanced) ────────────────────────────────────────────
+$('btn-patch').addEventListener('click', () => {
+  patching = !patching;
+  if (patching && placing) { placing = false; $('viewer').classList.remove('placing'); }
+  $('viewer').classList.toggle('patching', patching);
+  renderToolbar();
+  if (patching) toast('Drag on the page to cover an area, then add text on top');
+});
+
+// Drag-to-draw a patch rectangle. Uses pointer events on the page stack; the
+// rubber band lives in the page's overlay layer until the drag completes.
+let patchDraw = null;
+$('viewer-stage').addEventListener('pointerdown', async (e) => {
+  if (!patching) return;
+  const container = e.target.closest('.viewer-page');
+  if (!container) return;
+  const rec = pageEls.get(container.dataset.id);
+  if (!rec) return;
+  if (!rec.mapper) { await renderPageInto(rec, currentScale); if (!rec.mapper) return; }
+  e.preventDefault();
+  const rect = rec.canvas.getBoundingClientRect();
+  const x0 = e.clientX - rect.left, y0 = e.clientY - rect.top;
+  const band = document.createElement('div');
+  band.className = 'patch-band';
+  band.style.left = `${x0}px`; band.style.top = `${y0}px`;
+  rec.layer.appendChild(band);
+  patchDraw = { rec, rect, x0, y0, band };
+  $('viewer-stage').setPointerCapture(e.pointerId);
+});
+$('viewer-stage').addEventListener('pointermove', (e) => {
+  if (!patchDraw) return;
+  const { rect, x0, y0, band } = patchDraw;
+  const x1 = e.clientX - rect.left, y1 = e.clientY - rect.top;
+  band.style.left = `${Math.min(x0, x1)}px`;
+  band.style.top = `${Math.min(y0, y1)}px`;
+  band.style.width = `${Math.abs(x1 - x0)}px`;
+  band.style.height = `${Math.abs(y1 - y0)}px`;
+});
+$('viewer-stage').addEventListener('pointerup', (e) => {
+  if (!patchDraw) return;
+  const { rec, rect, x0, y0, band } = patchDraw;
+  patchDraw = null;
+  const x1 = e.clientX - rect.left, y1 = e.clientY - rect.top;
+  band.remove();
+  patching = false; $('viewer').classList.remove('patching'); renderToolbar();
+  const left = Math.min(x0, x1), top = Math.min(y0, y1);
+  const w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+  if (w < 6 || h < 6) return; // ignore stray clicks / tiny drags
+  const a = rec.mapper.toPdfPoint(left, top);
+  const b = rec.mapper.toPdfPoint(left + w, top + h);
+  commit((s) => {
+    const it = s.pages.find((p) => p.id === rec.item.id);
+    (it.patches ||= []).push({
+      id: uid('patch'),
+      xPt: Math.min(a.x, b.x), yPt: Math.max(a.y, b.y),
+      wPt: Math.abs(b.x - a.x), hPt: Math.abs(a.y - b.y),
+      color: [1, 1, 1],
+    });
+  });
+  toast('Patch added — use ＋ Text to write on it');
+});
+
+// Move / resize / recolor / delete an existing patch (when not in draw mode).
+function attachPatchHandlers(el, handle, p, rec) {
+  let mode = null, start = null;
+  const onDown = (e, m) => {
+    e.stopPropagation();
+    mode = m;
+    start = {
+      x: e.clientX, y: e.clientY, moved: false,
+      left: parseFloat(el.style.left), top: parseFloat(el.style.top),
+      w: parseFloat(el.style.width), h: parseFloat(el.style.height),
+    };
+    el.setPointerCapture(e.pointerId);
+  };
+  el.addEventListener('pointerdown', (e) => { if (e.target !== handle) onDown(e, 'move'); });
+  handle.addEventListener('pointerdown', (e) => onDown(e, 'resize'));
+  el.addEventListener('pointermove', (e) => {
+    if (!mode) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) start.moved = true;
+    if (mode === 'move') { el.style.left = `${start.left + dx}px`; el.style.top = `${start.top + dy}px`; }
+    else { el.style.width = `${Math.max(6, start.w + dx)}px`; el.style.height = `${Math.max(6, start.h + dy)}px`; }
+  });
+  el.addEventListener('pointerup', () => {
+    if (!mode) return;
+    const wasMoved = start.moved;
+    mode = null;
+    if (!wasMoved) { showPatchTools(el, p, rec); return; }
+    const left = parseFloat(el.style.left), top = parseFloat(el.style.top);
+    const w = parseFloat(el.style.width), h = parseFloat(el.style.height);
+    const a = rec.mapper.toPdfPoint(left, top);
+    const b = rec.mapper.toPdfPoint(left + w, top + h);
+    commit((s) => {
+      const it = s.pages.find((x) => x.id === rec.item.id);
+      const pp = it.patches.find((x) => x.id === p.id);
+      pp.xPt = Math.min(a.x, b.x); pp.yPt = Math.max(a.y, b.y);
+      pp.wPt = Math.abs(b.x - a.x); pp.hPt = Math.abs(a.y - b.y);
+    });
+  });
+}
+
+// Floating colour / delete toolbar shown when a patch is clicked.
+let patchTools = null;
+function showPatchTools(el, p, rec) {
+  hidePatchTools();
+  patchTools = document.createElement('div');
+  patchTools.className = 'ctx';
+  patchTools.style.padding = '0.3rem';
+  patchTools.innerHTML = `<div style="display:flex;align-items:center;gap:.5rem;padding:.2rem .3rem">
+    <label style="display:flex;align-items:center;gap:.3rem;font-size:.78rem">Fill
+    <input type="color" data-color value="${rgbToHex(p.color || [1, 1, 1])}" style="width:30px;height:24px;padding:0;border:none;background:none;cursor:pointer" /></label>
+    <button data-a="del" style="color:var(--danger)">🗑 Delete</button></div>`;
+  const r = el.getBoundingClientRect();
+  patchTools.style.left = `${r.left}px`;
+  patchTools.style.top = `${Math.max(8, r.top - 42)}px`;
+  document.body.appendChild(patchTools);
+  const input = patchTools.querySelector('[data-color]');
+  // Live preview while dragging the picker; commit once on close (change).
+  input.addEventListener('input', (e) => { el.style.background = rgbCss(hexToRgb(e.target.value)); });
+  input.addEventListener('change', (e) => {
+    const c = hexToRgb(e.target.value);
+    commit((s) => { const it = s.pages.find((x) => x.id === rec.item.id); it.patches.find((x) => x.id === p.id).color = c; });
+    hidePatchTools();
+  });
+  patchTools.querySelector('[data-a="del"]').addEventListener('click', () => {
+    hidePatchTools();
+    commit((s) => { const it = s.pages.find((x) => x.id === rec.item.id); it.patches = it.patches.filter((x) => x.id !== p.id); });
+  });
+}
+function hidePatchTools() { if (patchTools) { patchTools.remove(); patchTools = null; } }
+document.addEventListener('pointerdown', (e) => {
+  if (patchTools && !patchTools.contains(e.target) && !e.target.classList.contains('patch-overlay') && !e.target.classList.contains('patch-handle')) hidePatchTools();
+});
+
+// Double-click the ▱ brand mark to toggle the hidden advanced tools.
+document.querySelector('.brand').addEventListener('dblclick', () => {
+  advanced = !advanced;
+  localStorage.setItem('pdfeditor.advanced', advanced ? '1' : '0');
+  if (!advanced && patching) { patching = false; $('viewer').classList.remove('patching'); }
+  renderToolbar();
+  toast(advanced ? 'Advanced tools enabled — ▭ Patch is now in the toolbar' : 'Advanced tools hidden');
 });
 
 $('viewer-stage').addEventListener('click', async (e) => {
@@ -481,6 +668,8 @@ function startEditing(el, existing, rec) {
 
   const isNew = !existing.id;
   editingSize = existing.size || 16;
+  // New overlays keep the last-used font; editing an existing one adopts its own.
+  editingFont = existing.font || editingFont;
   if (isNew) {
     el = document.createElement('div');
     el.className = 'text-overlay editing';
@@ -494,13 +683,14 @@ function startEditing(el, existing, rec) {
     el.classList.add('editing');
     el.textContent = existing.text;
   }
+  el.style.fontFamily = getFont(editingFont).css;
   el.contentEditable = 'true';
 
   let done = false;
   const finish = () => {
     if (done) return; // blur can fire more than once
     done = true;
-    el.removeEventListener('blur', finish);
+    el.removeEventListener('blur', onBlur);
     hideOvTools();
     const text = el.textContent.trim();
     const lang = containsHebrew(text) ? 'he' : 'en';
@@ -513,14 +703,17 @@ function startEditing(el, existing, rec) {
     }
     commit((s) => {
       const it = s.pages.find((p) => p.id === item.id);
-      if (isNew) it.overlays.push({ id: uid('o'), text, lang, xPt: existing.xPt, yPt: existing.yPt, size: editingSize, color: [0, 0, 0] });
-      else { const ov = it.overlays.find((x) => x.id === existing.id); ov.text = text; ov.lang = lang; ov.size = editingSize; }
+      if (isNew) it.overlays.push({ id: uid('o'), text, lang, xPt: existing.xPt, yPt: existing.yPt, size: editingSize, color: [0, 0, 0], font: editingFont });
+      else { const ov = it.overlays.find((x) => x.id === existing.id); ov.text = text; ov.lang = lang; ov.size = editingSize; ov.font = editingFont; }
     });
   };
   // Attach handlers BEFORE focusing so nothing can prevent commit-on-blur.
-  el.addEventListener('blur', finish);
+  // Ignore the blur that happens when focus moves to the editing toolbar (e.g.
+  // opening the font dropdown) — only commit when focus truly leaves the editor.
+  const onBlur = (e) => { if (e.relatedTarget && ovTools && ovTools.contains(e.relatedTarget)) return; finish(); };
+  el.addEventListener('blur', onBlur);
   el.addEventListener('keydown', (e) => { if (e.key === 'Escape') el.blur(); });
-  showOvTools(el, existing, item, isNew);
+  showOvTools(el, existing, item, isNew, finish);
   el.focus();
   selectAllText(el);
 }
@@ -535,23 +728,31 @@ function selectAllText(el) {
   } catch { /* selection is best-effort */ }
 }
 
-// Floating size/delete toolbar shown while editing an overlay.
+// Floating font/size/delete toolbar shown while editing an overlay.
 let ovTools = null;
-function showOvTools(el, existing, item, isNew) {
+function showOvTools(el, existing, item, isNew, finish) {
   hideOvTools();
   ovTools = document.createElement('div');
   ovTools.className = 'ctx';
   ovTools.style.padding = '0.25rem';
+  const grp = (label, script) => `<optgroup label="${label}">` +
+    FONTS.filter((f) => f.script === script).map((f) =>
+      `<option value="${f.key}"${f.key === editingFont ? ' selected' : ''}>${f.label}</option>`).join('') +
+    '</optgroup>';
   ovTools.innerHTML = `<div style="display:flex;align-items:center;gap:.3rem;padding:.2rem">
+    <select data-font style="max-width:150px;font-size:.78rem">${grp('Latin', 'latin')}${grp('עברית', 'hebrew')}</select>
     <button data-a="dec">A−</button><span data-size style="min-width:2rem;text-align:center">${editingSize}</span>
     <button data-a="inc">A+</button><button data-a="del" style="color:var(--danger)">🗑</button></div>`;
   const r = el.getBoundingClientRect();
   ovTools.style.left = `${r.left}px`;
   ovTools.style.top = `${Math.max(8, r.top - 44)}px`;
   document.body.appendChild(ovTools);
-  ovTools.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus on text
+  // Keep focus on the text for buttons (so editing isn't committed), but let the
+  // font <select> take focus so it can open.
+  ovTools.addEventListener('pointerdown', (e) => { if (e.target.tagName !== 'SELECT') e.preventDefault(); });
   ovTools.addEventListener('click', (e) => {
     const a = e.target.dataset.a;
+    if (e.target.tagName === 'SELECT') return;
     if (a === 'inc') editingSize = Math.min(96, editingSize + 2);
     else if (a === 'dec') editingSize = Math.max(6, editingSize - 2);
     else if (a === 'del') {
@@ -559,9 +760,21 @@ function showOvTools(el, existing, item, isNew) {
       if (!isNew) commit((s) => { const it = s.pages.find((p) => p.id === item.id); it.overlays = it.overlays.filter((x) => x.id !== existing.id); });
       else el.remove();
       return;
-    }
+    } else return;
     el.style.fontSize = `${editingSize * currentScale}px`;
     ovTools.querySelector('[data-size]').textContent = editingSize;
+  });
+  const sel = ovTools.querySelector('[data-font]');
+  sel.addEventListener('change', () => {
+    editingFont = sel.value;
+    el.style.fontFamily = getFont(editingFont).css;
+    el.focus(); // resume editing with the new font applied
+  });
+  // If focus leaves the whole editor (not back to the text or toolbar), commit.
+  sel.addEventListener('blur', (e) => {
+    const to = e.relatedTarget;
+    if (to && (el.contains(to) || ovTools.contains(to))) return;
+    finish();
   });
 }
 function hideOvTools() { if (ovTools) { ovTools.remove(); ovTools = null; } }
@@ -1028,6 +1241,8 @@ document.querySelectorAll('.help-tab').forEach((tab) => {
     $('help-notes').hidden = tab.dataset.tab !== 'notes';
   });
 });
+
+ensureFontFaces(); // load embedded fonts so on-screen previews match the output
 
 subscribe(render);
 render();

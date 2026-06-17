@@ -1,6 +1,6 @@
 {
   "name": "pdf-editor",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "private": true,
   "description": "Browser-side PDF page editor: delete, insert (from other PDFs), and reorder pages. All processing stays client-side.",
   "type": "module",
@@ -10,7 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@expo-google-fonts/assistant": "^0.4.1",
+    "@expo-google-fonts/frank-ruhl-libre": "^0.4.1",
+    "@expo-google-fonts/heebo": "^0.4.2",
     "@expo-google-fonts/noto-sans-hebrew": "^0.4.1",
+    "@expo-google-fonts/rubik": "^0.4.2",
     "@pdf-lib/fontkit": "^1.1.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38",

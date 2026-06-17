@@ -7,7 +7,7 @@ import {
 } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { fontkit, loadHebrewFontBytes, splitBidiRuns, containsHebrew } from './fonts.js';
+import { fontkit, loadFontBytes, resolveFont, splitBidiRuns, containsHebrew } from './fonts.js';
 import { getState, uid } from './store.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -69,7 +69,7 @@ export async function pageItemsForSource(srcId) {
     const vp = page.getViewport({ scale: 1 });
     items.push({
       id: uid('p'), kind: 'pdf', srcId, srcPageIndex: i,
-      rotation: 0, width: vp.width, height: vp.height, overlays: [],
+      rotation: 0, width: vp.width, height: vp.height, overlays: [], patches: [],
     });
   }
   return items;
@@ -178,25 +178,40 @@ function blankMapper(item, scale, cssW, cssH) {
 // ---------------------------------------------------------------------------
 // Assembly / export
 // ---------------------------------------------------------------------------
-function drawOverlay(page, o, fonts) {
+function drawOverlay(page, o, pdfFont) {
   const color = rgb(...(o.color || [0, 0, 0]));
   const baselineY = o.yPt - o.size * 0.8; // o.yPt is the text's top edge
-  if (o.lang === 'he') {
+  if (containsHebrew(o.text)) {
     // Simplified bidi for RTL overlays. fontkit reorders a Hebrew run to correct
     // visual order on its own, but drawing a *mixed* Hebrew+Latin/digit string in
     // one call makes it flip the embedded numbers/Latin (no full bidi engine).
     // So split into directional runs and lay them out right-to-left in logical
     // order, drawing each run separately — fontkit then shapes each in isolation.
-    // The Hebrew font carries Latin+digit glyphs, so it renders every run safely.
+    // The resolved font is Hebrew-capable (carries Latin+digit glyphs too).
     let x = o.xPt; // right edge; runs are placed leftward from here
     for (const run of splitBidiRuns(o.text)) {
-      const w = fonts.heb.widthOfTextAtSize(run.text, o.size);
+      const w = pdfFont.widthOfTextAtSize(run.text, o.size);
       x -= w;
-      page.drawText(run.text, { x, y: baselineY, size: o.size, font: fonts.heb, color });
+      page.drawText(run.text, { x, y: baselineY, size: o.size, font: pdfFont, color });
     }
   } else {
-    page.drawText(o.text, { x: o.xPt, y: baselineY, size: o.size, font: fonts.helv, color });
+    page.drawText(o.text, { x: o.xPt, y: baselineY, size: o.size, font: pdfFont, color });
   }
+}
+
+// Draw an opaque "cover" rectangle over an area of existing page content, so
+// new text overlays can be placed on top. Stored in unrotated PDF point space
+// (same convention as overlays): xPt/yPt is the rectangle's top-left corner.
+// NOTE: this only hides content visually — the underlying text remains in the
+// file and is still selectable/extractable (this is a cover, not redaction).
+function drawPatch(page, p) {
+  page.drawRectangle({
+    x: p.xPt,
+    y: p.yPt - p.hPt,
+    width: p.wPt,
+    height: p.hPt,
+    color: rgb(...(p.color || [1, 1, 1])),
+  });
 }
 
 function stampPageNumbers(out, cfg, font) {
@@ -343,14 +358,20 @@ export async function assemble(pageItems, { pageNumbering, flattenForms = true }
   const sources = getState().sources;
   const out = await PDFDocument.create();
 
-  const helv = await out.embedFont(StandardFonts.Helvetica);
-  let heb = null;
-  const needHeb = pageItems.some((p) => (p.overlays || []).some((o) => o.lang === 'he' || containsHebrew(o.text)));
-  if (needHeb) {
-    out.registerFontkit(fontkit);
-    heb = await out.embedFont(await loadHebrewFontBytes());
-  }
-  const fonts = { helv, heb };
+  out.registerFontkit(fontkit);
+  const helv = await out.embedFont(StandardFonts.Helvetica); // page numbers
+
+  // Embed each overlay font on demand, once. Keyed by the resolved catalog key
+  // (Hebrew text picked with a Latin font resolves to the default Hebrew font).
+  const embedded = new Map([['helvetica', helv]]);
+  const fontForOverlay = async (o) => {
+    const f = resolveFont(o.font, o.text);
+    if (!embedded.has(f.key)) {
+      embedded.set(f.key, f.standard ? await out.embedFont(f.standard)
+        : await out.embedFont(await loadFontBytes(f.url)));
+    }
+    return embedded.get(f.key);
+  };
 
   const loaded = new Map(); // srcId -> PDFDocument (loaded once)
   const loadSrc = async (srcId) => {
@@ -376,7 +397,9 @@ export async function assemble(pageItems, { pageNumbering, flattenForms = true }
     // on top of (not under) the form's opaque field boxes. No-op for pages
     // without widgets (blank pages, fitted pages whose annotations weren't copied).
     if (flattenForms) flattenWidgets(page, out.context);
-    for (const o of item.overlays || []) drawOverlay(page, o, fonts);
+    // Patches first (cover existing content), then text overlays on top of them.
+    for (const p of item.patches || []) drawPatch(page, p);
+    for (const o of item.overlays || []) drawOverlay(page, o, await fontForOverlay(o));
   }
 
   if (pageNumbering?.enabled) stampPageNumbers(out, pageNumbering, helv);

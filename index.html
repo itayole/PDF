@@ -17,6 +17,7 @@
         <button id="btn-undo" class="btn" disabled title="Undo (Ctrl+Z)">↶</button>
         <button id="btn-redo" class="btn" disabled title="Redo (Ctrl+Y)">↷</button>
         <button id="btn-text" class="btn" disabled title="Add a text box">＋ Text</button>
+        <button id="btn-patch" class="btn btn-patch" hidden disabled title="Cover an existing area with a patch, then add text on top">▭ Patch</button>
         <button id="btn-save" class="btn btn-primary" disabled>Save…</button>
         <button id="btn-help" class="btn btn-help" title="User guide &amp; release notes">?</button>
       </div>
@@ -215,6 +216,7 @@
 
           <h4>הוספת טקסט</h4>
           <p>לחץ על <strong>＋ Text</strong> בסרגל, ואז לחץ על העמוד במיקום הרצוי. הטקסט מזוהה כעברית או אנגלית באופן אוטומטי (כולל ניפוי RTL).</p>
+          <p>בעת עריכת תיבת טקסט נפתח סרגל קטן: ניתן לבחור <strong>גופן</strong> (לטיני: Helvetica/Times/Courier; עברית: Noto Sans Hebrew, Rubik, Heebo, Assistant, Frank Ruhl), לשנות גודל (A− / A+) ולמחוק. כל תיבת טקסט שומרת את הגופן שלה.</p>
 
           <h4>שמירה</h4>
           <p>לחץ על <strong>Save…</strong> לפתיחת חלון האפשרויות: ניתן להוסיף <strong>מספרי עמודים</strong> (מיקום, פורמט, מספר התחלה). לחץ <strong>Save &amp; download</strong> להורדת הקובץ הערוך.</p>
@@ -236,6 +238,18 @@
         <!-- English release notes -->
         <div id="help-notes" class="help-body" dir="ltr" lang="en" hidden>
           <h3>Release Notes</h3>
+
+          <h4>v0.40 — 2026</h4>
+          <ul>
+            <li><strong>Fonts per text box:</strong> choose a font when adding text — Latin (Helvetica, Times, Courier) and Hebrew families (Noto Sans Hebrew, Rubik, Heebo, Assistant, Frank Ruhl). The on-screen preview matches the saved PDF; only the fonts you use are embedded.</li>
+            <li><strong>White-patch cover (advanced):</strong> cover existing content with an opaque rectangle, then write new text on top. Hidden by default — double-click the <strong>▱</strong> mark next to "PDF Editor" to reveal the <em>▭ Patch</em> tool. Move/resize/recolor/delete each patch. Note: this hides content visually and is <em>not</em> secure redaction — the underlying text remains in the file.</li>
+          </ul>
+
+          <h4>v0.39 — 2026</h4>
+          <ul>
+            <li>Fix: Hebrew text mixed with numbers/Latin (names, ID numbers, dates) now saves in correct reading order.</li>
+            <li>Fillable forms: added text stays visible on save, with a <em>Flatten form fields</em> option in the Save dialog.</li>
+          </ul>
 
           <h4>v0.38 — 2026</h4>
           <ul>

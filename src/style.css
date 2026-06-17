@@ -184,10 +184,38 @@ html, body {
 .text-overlay {
   position: absolute; pointer-events: auto; cursor: move; white-space: pre;
   color: #000; line-height: 1; outline: 1px dashed transparent; padding: 1px;
+  /* Always above patch covers (z-index: 1) so added text isn't hidden by them. */
+  z-index: 2;
 }
 .text-overlay:hover { outline-color: var(--gold); }
 .text-overlay.editing { outline: 1px solid var(--gold); background: rgba(255, 255, 255, 0.6); cursor: text; }
 .text-overlay[data-lang="he"] { direction: rtl; transform: translateX(-100%); }
+
+/* ───────── White-patch cover (hidden "advanced" tool) ───────── */
+/* The dashed outline is an on-screen editing affordance only; the saved PDF
+   gets just the solid filled rectangle. */
+.viewer.patching { cursor: crosshair; }
+/* While drawing a patch, let pointer events fall through existing overlays so
+   the user can cover any spot freely. */
+.viewer.patching .text-overlay,
+.viewer.patching .patch-overlay { pointer-events: none; }
+.patch-band {
+  position: absolute; box-sizing: border-box; z-index: 4; pointer-events: none;
+  border: 1px dashed var(--navy); background: rgba(255, 255, 255, 0.5);
+}
+.patch-overlay {
+  position: absolute; box-sizing: border-box; pointer-events: auto; cursor: move;
+  z-index: 1; outline: 1px dashed rgba(31, 42, 68, 0.4);
+}
+.patch-overlay:hover { outline-color: var(--gold); }
+.patch-handle {
+  position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px;
+  background: var(--gold); border: 1px solid var(--navy); border-radius: 2px;
+  cursor: nwse-resize;
+}
+.btn-patch.btn-text-active { background: var(--gold); color: var(--navy); border-color: var(--gold); }
+/* Double-click target for revealing advanced tools — don't select the text. */
+.brand { user-select: none; cursor: default; }
 
 /* ───────── Context menu ───────── */
 .ctx {
