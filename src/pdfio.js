@@ -367,8 +367,11 @@ export async function assemble(pageItems, { pageNumbering, flattenForms = true }
   const fontForOverlay = async (o) => {
     const f = resolveFont(o.font, o.text);
     if (!embedded.has(f.key)) {
+      // Subset embedded fonts: only the glyphs actually used are written into
+      // the output, which keeps saved PDFs small even though the full TTF is
+      // bundled in the app. (Standard base-14 fonts aren't embedded at all.)
       embedded.set(f.key, f.standard ? await out.embedFont(f.standard)
-        : await out.embedFont(await loadFontBytes(f.url)));
+        : await out.embedFont(await loadFontBytes(f.url), { subset: true }));
     }
     return embedded.get(f.key);
   };
